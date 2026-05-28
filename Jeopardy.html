@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Buzzer — OCR Jeopardy Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
+<style>
+  :root {
+    --board-blue: #060CE9;
+    --board-blue-deep: #03046b;
+    --night: #04051f;
+    --gold: #D9A441;
+    --gold-bright: #FFCC00;
+    --paper: #f4f1e8;
+    --ink: #0a0a1a;
+    --green-ok: #3ddc84;
+    --red-err: #ff5d5d;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    font-family:'Hanken Grotesk',sans-serif;
+    background:radial-gradient(120% 80% at 50% -10%, #1217ff 0%, var(--board-blue) 30%, var(--board-blue-deep) 65%, var(--night) 100%);
+    color:var(--paper); min-height:100dvh; display:flex; flex-direction:column;
+    align-items:center; padding:24px 16px 40px; position:relative; overflow-x:hidden;
+  }
+  body::after{ content:""; position:fixed; inset:0;
+    background-image:repeating-linear-gradient(to bottom, rgba(0,0,0,.06) 0 1px, transparent 1px 3px);
+    pointer-events:none; opacity:.5; z-index:5; }
+
+  header{ text-align:center; margin-bottom:20px; z-index:10; }
+  .brand{ font-family:'Oswald',sans-serif; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    font-size:clamp(32px,10vw,52px); line-height:.95; color:var(--gold-bright);
+    text-shadow:0 2px 0 #a8741f, 0 4px 14px rgba(0,0,0,.55), 0 0 30px rgba(255,204,0,.25); transform:skewX(-6deg); }
+  .tagline{ margin-top:9px; font-size:12px; letter-spacing:.26em; text-transform:uppercase; color:rgba(244,241,232,.7); font-weight:500; }
+
+  .stage{ width:100%; max-width:480px; display:flex; flex-direction:column; gap:18px; z-index:10; }
+
+  .mode-toggle{ display:flex; gap:8px; background:rgba(0,0,0,.25); padding:6px; border-radius:12px; }
+  .mode-toggle button{ flex:1; font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.1em;
+    font-size:13px; font-weight:600; padding:11px; border:none; border-radius:8px; cursor:pointer;
+    background:transparent; color:rgba(244,241,232,.6); transition:all .15s; }
+  .mode-toggle button.active{ background:var(--gold-bright); color:var(--ink); }
+
+  .capture-card{ background:linear-gradient(180deg, var(--board-blue) 0%, var(--board-blue-deep) 100%);
+    border:3px solid #000; border-radius:14px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.06), 0 18px 40px rgba(0,0,0,.5);
+    padding:22px 20px; text-align:center; }
+  .capture-card .label{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.18em;
+    font-size:14px; color:var(--gold-bright); margin-bottom:16px; }
+
+  .frame{ width:100%; aspect-ratio:4/3; border-radius:8px; border:2px dashed rgba(255,204,0,.45);
+    background:rgba(0,0,0,.3); display:flex; align-items:center; justify-content:center; overflow:hidden;
+    margin-bottom:16px; position:relative; }
+  .frame img, .frame video{ width:100%; height:100%; object-fit:cover; }
+  .frame .placeholder{ color:rgba(244,241,232,.45); font-size:13px; padding:0 18px; line-height:1.5; }
+  .frame .placeholder .icon{ font-size:38px; display:block; margin-bottom:8px; }
+  .reticle{ position:absolute; inset:14% 10%; border:2px solid rgba(255,204,0,.6); border-radius:6px; pointer-events:none;
+    box-shadow:0 0 0 100vmax rgba(0,0,0,.18); display:none; }
+  .frame.live .reticle{ display:block; }
+
+  .btn{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.12em; font-weight:600;
+    font-size:16px; border:none; border-radius:9px; padding:15px 20px; cursor:pointer; width:100%;
+    transition:transform .08s, filter .15s; display:inline-flex; align-items:center; justify-content:center; gap:9px; }
+  .btn:active{ transform:translateY(2px) scale(.99); }
+  .btn-gold{ background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:var(--ink);
+    box-shadow:0 5px 0 #8a5e15, 0 10px 22px rgba(0,0,0,.4); }
+  .btn-gold:active{ box-shadow:0 2px 0 #8a5e15, 0 6px 14px rgba(0,0,0,.4); }
+  .btn-ghost{ background:transparent; color:var(--gold-bright); border:2px solid rgba(255,204,0,.55);
+    margin-top:10px; font-size:13px; padding:11px; }
+  .btn[disabled]{ opacity:.45; cursor:not-allowed; }
+  input[type="file"]{ display:none; }
+  canvas{ display:none; }
+
+  /* Editable OCR confirm box */
+  .confirm-card{ background:var(--paper); color:var(--ink); border-radius:14px; padding:18px;
+    border:3px solid #000; box-shadow:0 14px 34px rgba(0,0,0,.45); animation:rise .35s both; }
+  .confirm-card .head{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.12em;
+    font-size:12px; color:#8a5e15; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+  .confirm-card textarea{ width:100%; min-height:84px; border:2px solid #d8d2c2; border-radius:8px; padding:12px;
+    font-family:'Hanken Grotesk',sans-serif; font-size:16px; color:var(--ink); resize:vertical; line-height:1.45; background:#fff; }
+  .confirm-card textarea:focus{ outline:none; border-color:var(--board-blue); }
+  .confirm-card .hint{ font-size:12px; color:#8a8678; margin-top:8px; }
+
+  .answer-card{ background:var(--paper); color:var(--ink); border-radius:14px; padding:22px 20px 24px;
+    box-shadow:0 18px 40px rgba(0,0,0,.5); border:3px solid #000; animation:flip-in .5s cubic-bezier(.2,.8,.25,1) both; transform-origin:top center; }
+  @keyframes flip-in{ from{opacity:0; transform:rotateX(-32deg) translateY(-10px);} to{opacity:1; transform:rotateX(0) translateY(0);} }
+  @keyframes rise{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+  .category-chip{ display:inline-block; background:var(--board-blue); color:var(--gold-bright); font-family:'Oswald',sans-serif;
+    text-transform:uppercase; letter-spacing:.12em; font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px; margin-bottom:12px; }
+  .answer-line{ display:block; text-transform:uppercase; letter-spacing:.1em; font-size:11px; color:#8a8678; font-weight:600; margin-bottom:6px; }
+  .answer{ font-family:'Oswald',sans-serif; font-weight:700; font-size:clamp(26px,8vw,38px); line-height:1.05; color:var(--board-blue); margin-bottom:14px; }
+  .meta-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .confidence{ font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px; }
+  .conf-high{ background:rgba(61,220,132,.18); color:#1c7a44; }
+  .conf-med{ background:rgba(217,164,65,.2); color:#8a5e15; }
+  .conf-low{ background:rgba(255,93,93,.16); color:#b3372f; }
+  .explain{ font-size:13.5px; line-height:1.55; color:#55534a; margin-top:13px; }
+
+  .loading{ text-align:center; padding:26px 10px; animation:rise .3s both; }
+  .dots{ display:inline-flex; gap:8px; margin-bottom:14px; }
+  .dots span{ width:12px; height:12px; border-radius:50%; background:var(--gold-bright); animation:bounce 1s infinite ease-in-out; }
+  .dots span:nth-child(2){ animation-delay:.15s; } .dots span:nth-child(3){ animation-delay:.3s; }
+  @keyframes bounce{ 0%,80%,100%{ transform:scale(.5); opacity:.4;} 40%{ transform:scale(1); opacity:1;} }
+  .loading p{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.16em; color:var(--gold-bright); font-size:13px; }
+  .bar{ width:160px; height:6px; background:rgba(255,255,255,.15); border-radius:99px; margin:10px auto 0; overflow:hidden; }
+  .bar > i{ display:block; height:100%; width:0%; background:var(--gold-bright); transition:width .2s; }
+
+  .error-card{ background:rgba(255,93,93,.12); border:2px solid var(--red-err); border-radius:12px; padding:16px;
+    color:#ffd9d9; font-size:14px; line-height:1.5; animation:rise .3s both; }
+  .error-card strong{ color:var(--red-err); display:block; margin-bottom:6px; font-family:'Oswald',sans-serif; letter-spacing:.08em; text-transform:uppercase; }
+
+  header{ position:relative; }
+  .key-btn{ position:absolute; top:-2px; right:0; background:rgba(0,0,0,.3); border:2px solid rgba(255,204,0,.4);
+    color:var(--gold-bright); font-size:18px; width:44px; height:44px; border-radius:50%; cursor:pointer; line-height:1; transition:border-color .15s; }
+  .key-btn.set{ border-color:var(--green-ok); }
+  .key-btn:active{ transform:scale(.94); }
+
+  .settings-card{ background:var(--paper); color:var(--ink); border-radius:14px; padding:18px;
+    border:3px solid #000; box-shadow:0 14px 34px rgba(0,0,0,.45); animation:rise .25s both; }
+  .settings-card .label{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.14em; font-size:13px; color:#8a5e15; margin-bottom:10px; }
+  .settings-card input{ width:100%; border:2px solid #d8d2c2; border-radius:8px; padding:12px; font-family:'Hanken Grotesk',sans-serif; font-size:15px; color:var(--ink); background:#fff; }
+  .settings-card input:focus{ outline:none; border-color:var(--board-blue); }
+  .settings-card .btn-row{ display:flex; gap:10px; margin-top:12px; }
+  .settings-card .btn-row .btn{ margin-top:0; }
+  .settings-card .hint{ font-size:12.5px; margin-top:8px; font-weight:600; }
+  .settings-card .hint.ok{ color:#1c7a44; } .settings-card .hint.warn{ color:#b3372f; }
+  .settings-card .fineprint{ font-size:11.5px; color:#8a8678; margin-top:10px; line-height:1.5; }
+
+  footer{ margin-top:26px; font-size:11px; color:rgba(244,241,232,.4); text-align:center; line-height:1.6; z-index:10; max-width:420px; }
+</style>
+</head>
+<body>
+  <header>
+    <button id="settingsBtn" class="key-btn" title="Your API key">🔑</button>
+    <div class="brand">Buzzer</div>
+    <div class="tagline">Scan · Read · Solve</div>
+  </header>
+
+  <main class="stage">
+    <div class="settings-card" id="settingsCard" style="display:none;">
+      <div class="label">Your Anthropic API Key</div>
+      <input type="password" id="keyInput" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="hint" id="keyStatus"></div>
+      <div class="btn-row">
+        <button class="btn btn-gold" id="saveKeyBtn">Save Key</button>
+        <button class="btn btn-ghost" id="clearKeyBtn">Clear</button>
+      </div>
+      <div class="fineprint">Stored only in this browser and sent only to Anthropic — never to this site's owner. Get a key at console.anthropic.com.</div>
+    </div>
+
+    <div class="mode-toggle">
+      <button id="modeCamera" class="active">Live Camera</button>
+      <button id="modeUpload">Upload Photo</button>
+    </div>
+
+    <div class="capture-card">
+      <div class="label" id="cardLabel">Aim & Capture</div>
+      <div class="frame" id="frame">
+        <video id="video" playsinline autoplay muted style="display:none;"></video>
+        <div class="reticle"></div>
+        <div class="placeholder" id="placeholder">
+          <span class="icon">🎥</span>
+          Point the camera at a clue, then capture a frame
+        </div>
+      </div>
+
+      <button class="btn btn-gold" id="primaryBtn">Capture Frame</button>
+      <button class="btn btn-ghost" id="retakeBtn" style="display:none;">Retake</button>
+      <input type="file" id="fileInput" accept="image/*" capture="environment">
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="output"></div>
+  </main>
+
+  <footer>
+    Reads the clue with on-device OCR, then sends just the text for a fast answer.
+    Best for studying or playing along at home.
+  </footer>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const frame=$('frame'), video=$('video'), placeholder=$('placeholder'), canvas=$('canvas');
+  const primaryBtn=$('primaryBtn'), retakeBtn=$('retakeBtn'), fileInput=$('fileInput');
+  const output=$('output'), cardLabel=$('cardLabel');
+  const modeCamera=$('modeCamera'), modeUpload=$('modeUpload');
+
+  let mode='camera';          // 'camera' | 'upload'
+  let stream=null;
+  let lastCanvasDataUrl=null;
+
+  // ---------- API key (Bring Your Own Key) ----------
+  // Leave PROXY_URL "" for a pure GitHub Pages / BYOK setup. If you later deploy a
+  // proxy (Cloudflare Workers, Vercel, etc.) that holds YOUR key, paste its URL here;
+  // the app will use it automatically whenever a visitor hasn't entered their own key.
+  const PROXY_URL = "";
+  const KEY_STORE = "buzzer_anthropic_key";
+
+  let userKey = "";
+  try { userKey = localStorage.getItem(KEY_STORE) || ""; } catch(_) {}
+
+  const settingsBtn=$('settingsBtn'), settingsCard=$('settingsCard'),
+        keyInput=$('keyInput'), keyStatus=$('keyStatus'),
+        saveKeyBtn=$('saveKeyBtn'), clearKeyBtn=$('clearKeyBtn');
+
+  function reflectKeyState(){
+    settingsBtn.classList.toggle('set', !!userKey);
+    if(userKey){
+      keyInput.value=userKey;
+      keyStatus.textContent="Key saved in this browser.";
+      keyStatus.className="hint ok";
+    } else {
+      keyStatus.textContent = PROXY_URL
+        ? "No personal key — using the shared free path."
+        : "Enter your key to start scanning.";
+      keyStatus.className="hint warn";
+    }
+  }
+  reflectKeyState();
+
+  settingsBtn.addEventListener('click',()=>{
+    settingsCard.style.display = settingsCard.style.display==='none' ? '' : 'none';
+  });
+  saveKeyBtn.addEventListener('click',()=>{
+    userKey = keyInput.value.trim();
+    try { localStorage.setItem(KEY_STORE, userKey); } catch(_) {}
+    reflectKeyState();
+    if(userKey) settingsCard.style.display='none';
+  });
+  clearKeyBtn.addEventListener('click',()=>{
+    userKey=""; keyInput.value="";
+    try { localStorage.removeItem(KEY_STORE); } catch(_) {}
+    reflectKeyState();
+  });
+
+  // ---------- Mode switching ----------
+  modeCamera.addEventListener('click',()=>setMode('camera'));
+  modeUpload.addEventListener('click',()=>setMode('upload'));
+
+  async function setMode(m){
+    mode=m; output.innerHTML=''; resetFrame();
+    modeCamera.classList.toggle('active', m==='camera');
+    modeUpload.classList.toggle('active', m==='upload');
+    stopStream();
+    if(m==='camera'){
+      cardLabel.textContent='Aim & Capture';
+      primaryBtn.textContent='Capture Frame';
+      primaryBtn.style.display='';
+      await startCamera();
+    } else {
+      cardLabel.textContent='Upload a Photo';
+      primaryBtn.textContent='Choose Photo';
+      primaryBtn.style.display='';
+      placeholder.innerHTML='<span class="icon">🖼️</span>Pick a photo of a Jeopardy clue';
+      placeholder.style.display='';
+      video.style.display='none';
+    }
+  }
+
+  function resetFrame(){
+    const img=frame.querySelector('img'); if(img) img.remove();
+    retakeBtn.style.display='none';
+    primaryBtn.style.display='';
+  }
+
+  // ---------- Camera ----------
+  async function startCamera(){
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      video.srcObject=stream; video.style.display=''; placeholder.style.display='none';
+      frame.classList.add('live');
+    }catch(err){
+      frame.classList.remove('live');
+      placeholder.style.display='';
+      placeholder.innerHTML='<span class="icon">🚫</span>Camera unavailable here. Switch to <b>Upload Photo</b> mode.';
+      video.style.display='none';
+    }
+  }
+  function stopStream(){
+    frame.classList.remove('live');
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  }
+
+  // ---------- Primary action ----------
+  primaryBtn.addEventListener('click',()=>{
+    if(mode==='upload'){ fileInput.click(); return; }
+    if(!stream){ startCamera(); return; }
+    captureFromVideo();
+  });
+
+  retakeBtn.addEventListener('click',()=>{ output.innerHTML=''; if(mode==='camera') setMode('camera'); else setMode('upload'); });
+
+  fileInput.addEventListener('change',e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{ drawImageToCanvas(reader.result); };
+    reader.readAsDataURL(file);
+  });
+
+  function captureFromVideo(){
+    const w=video.videoWidth, h=video.videoHeight;
+    if(!w||!h) return;
+    canvas.width=w; canvas.height=h;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(video,0,0,w,h);
+    finishCapture();
+  }
+
+  function drawImageToCanvas(dataUrl){
+    const im=new Image();
+    im.onload=()=>{
+      canvas.width=im.width; canvas.height=im.height;
+      canvas.getContext('2d').drawImage(im,0,0);
+      finishCapture();
+    };
+    im.src=dataUrl;
+  }
+
+  function finishCapture(){
+    preprocess(canvas);                  // grayscale + contrast for better OCR
+    lastCanvasDataUrl=canvas.toDataURL('image/png');
+    // show still preview
+    resetFrame();
+    const img=document.createElement('img'); img.src=lastCanvasDataUrl;
+    frame.appendChild(img); video.style.display='none'; placeholder.style.display='none';
+    frame.classList.remove('live');
+    stopStream();
+    primaryBtn.style.display='none';
+    retakeBtn.style.display='';
+    runOCR(lastCanvasDataUrl);
+  }
+
+  // Boost legibility for Tesseract: grayscale + contrast stretch
+  function preprocess(cv){
+    const ctx=cv.getContext('2d');
+    const img=ctx.getImageData(0,0,cv.width,cv.height);
+    const d=img.data, contrast=1.45, intercept=128*(1-contrast);
+    for(let i=0;i<d.length;i+=4){
+      const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      let v=contrast*g+intercept; v=v<0?0:v>255?255:v;
+      d[i]=d[i+1]=d[i+2]=v;
+    }
+    ctx.putImageData(img,0,0);
+  }
+
+  // ---------- OCR (on-device) → straight to answer ----------
+  async function runOCR(dataUrl){
+    showLoading('Reading the clue…', true);
+    let text='';
+    try{
+      const result=await Tesseract.recognize(dataUrl,'eng',{
+        logger:m=>{ if(m.status==='recognizing text'){ const b=$('ocrBar'); if(b) b.style.width=Math.round(m.progress*100)+'%'; } }
+      });
+      text=(result.data.text||'').replace(/\s+/g,' ').trim();
+    }catch(err){
+      // Sandboxed previews (like this Claude window) block the Web Worker that
+      // Tesseract relies on. Fall back to reading the clue with the vision model.
+      return visionSolve(dataUrl);
+    }
+    if(!text) return visionSolve(dataUrl);
+    solveFromText(text);
+  }
+
+  // Fast path: send only the OCR'd text.
+  async function solveFromText(clue){
+    showLoading('Buzzing in…', false);
+    const prompt=
+      'The following is a Jeopardy! clue (it may also contain the category). Clue: "'+clue+'". '+
+      'Respond ONLY with a JSON object, no markdown or backticks, with keys: '+
+      '"category" (category if present, else ""), '+
+      '"answer" (correct response phrased as a question, e.g. "What is Paris?"), '+
+      '"confidence" ("high","medium","low"), '+
+      '"explanation" (one short sentence of context).';
+    await callModel({ messages:[{ role:"user", content:prompt }] });
+  }
+
+  // Fallback path: vision model reads the clue from the image and answers in one call.
+  async function visionSolve(dataUrl){
+    showLoading('Reading the clue…', false);
+    const base64=dataUrl.split(',')[1];
+    const prompt=
+      'This image contains a Jeopardy! clue (and maybe its category). Read it, then respond ONLY '+
+      'with a JSON object, no markdown or backticks, with keys: "category" (else ""), '+
+      '"answer" (correct response phrased as a question), "confidence" ("high","medium","low"), '+
+      '"explanation" (one short sentence). If no clue is visible, set answer to "No clue found".';
+    await callModel({ messages:[{ role:"user", content:[
+      { type:"image", source:{ type:"base64", media_type:"image/png", data:base64 } },
+      { type:"text", text:prompt }
+    ]}]});
+  }
+
+  async function callModel(bodyExtra){
+    let url = "https://api.anthropic.com/v1/messages";
+    const headers = { "Content-Type":"application/json" };
+
+    if (userKey) {
+      // Direct browser call with the visitor's own key (works on any HTTPS host).
+      headers["x-api-key"] = userKey;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    } else if (PROXY_URL) {
+      // Shared free path: your proxy holds the key and forwards the request.
+      url = PROXY_URL;
+    }
+    // else: bare call — succeeds inside the Claude preview's relay so you can test
+    // here; on a real host with no key and no proxy it fails, and we prompt for a key.
+
+    try{
+      const res=await fetch(url,{
+        method:"POST", headers,
+        body:JSON.stringify(Object.assign({ model:"claude-sonnet-4-20250514", max_tokens:1000 }, bodyExtra))
+      });
+      if(!res.ok) throw new Error("status "+res.status);
+      const data=await res.json();
+      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+      const clean=txt.replace(/```json|```/g,"").trim();
+      let parsed; try{ parsed=JSON.parse(clean); }catch(_){ parsed={answer:clean||"Couldn't parse a response.",confidence:"low"}; }
+      renderAnswer(parsed);
+    }catch(err){
+      if(!userKey && !PROXY_URL){
+        showError("Tap the 🔑 button and add your Anthropic API key to start scanning. "+
+          "(Details: "+escapeHtml(err.message)+")");
+      } else {
+        showError("Couldn't reach the model: "+escapeHtml(err.message)+". Check your key and try again.");
+      }
+    }
+  }
+
+  function showLoading(msg, withBar){
+    output.innerHTML='<div class="loading"><div class="dots"><span></span><span></span><span></span></div>'+
+      '<p>'+escapeHtml(msg)+'</p>'+(withBar?'<div class="bar"><i id="ocrBar"></i></div>':'')+'</div>';
+  }
+
+  function renderAnswer(d){
+    const cat=d.category?'<div class="category-chip">'+escapeHtml(d.category)+'</div>':'';
+    const conf=d.confidence?'<span class="confidence '+confClass(d.confidence)+'">Confidence: '+escapeHtml(d.confidence)+'</span>':'';
+    const ex=d.explanation?'<div class="explain">'+escapeHtml(d.explanation)+'</div>':'';
+    output.innerHTML=
+      '<div class="answer-card">'+cat+
+        '<span class="answer-line">Correct response</span>'+
+        '<div class="answer">'+escapeHtml(d.answer||'—')+'</div>'+
+        '<div class="meta-row">'+conf+'</div>'+ex+
+        '<button class="btn btn-ghost" id="againBtn">Scan Another</button>'+
+      '</div>';
+    $('againBtn').addEventListener('click',()=>setMode(mode));
+  }
+
+  // ---------- helpers ----------
+  function confClass(c){ c=(c||'').toLowerCase(); return c==='high'?'conf-high':c==='low'?'conf-low':'conf-med'; }
+  function showError(msg){ output.innerHTML='<div class="error-card"><strong>No buzz</strong>'+msg+'</div>'; }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // start
+  setMode('camera');
+</script>
+</body>
+</html>
