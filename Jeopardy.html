@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Buzzer — OCR Jeopardy Scanner</title>
+<title>Watson Live — Jeopardy Clue Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,8 +13,9 @@
     --board-blue: #060CE9;
     --board-blue-deep: #03046b;
     --night: #04051f;
-    --gold: #D9A441;
-    --gold-bright: #FFCC00;
+    --gold-light: #FFD75E;
+    --gold: #C2730E;
+    --gold-bright: #F4A81C;
     --paper: #f4f1e8;
     --ink: #0a0a1a;
     --green-ok: #3ddc84;
@@ -33,9 +34,11 @@
     pointer-events:none; opacity:.5; z-index:5; }
 
   header{ text-align:center; margin-bottom:20px; z-index:10; }
-  .brand{ font-family:'Oswald',sans-serif; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
-    font-size:clamp(32px,10vw,52px); line-height:.95; color:var(--gold-bright);
-    text-shadow:0 2px 0 #a8741f, 0 4px 14px rgba(0,0,0,.55), 0 0 30px rgba(255,204,0,.25); transform:skewX(-6deg); }
+  .brand{ font-family:'Oswald',sans-serif; font-weight:700; letter-spacing:.10em; text-transform:uppercase;
+    font-size:clamp(28px,8.5vw,48px); line-height:.95; white-space:nowrap;
+    background:linear-gradient(180deg, var(--gold-light) 0%, var(--gold-bright) 48%, var(--gold) 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:transparent;
+    filter:drop-shadow(0 2px 0 #7a5413) drop-shadow(0 5px 14px rgba(0,0,0,.55)); transform:skewX(-6deg); }
   .tagline{ margin-top:9px; font-size:12px; letter-spacing:.26em; text-transform:uppercase; color:rgba(244,241,232,.7); font-weight:500; }
 
   .stage{ width:100%; max-width:480px; display:flex; flex-direction:column; gap:18px; z-index:10; }
@@ -52,13 +55,13 @@
   .capture-card .label{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.18em;
     font-size:14px; color:var(--gold-bright); margin-bottom:16px; }
 
-  .frame{ width:100%; aspect-ratio:4/3; border-radius:8px; border:2px dashed rgba(255,204,0,.45);
+  .frame{ width:100%; aspect-ratio:4/3; border-radius:8px; border:2px dashed rgba(244,168,28,.45);
     background:rgba(0,0,0,.3); display:flex; align-items:center; justify-content:center; overflow:hidden;
     margin-bottom:16px; position:relative; }
   .frame img, .frame video{ width:100%; height:100%; object-fit:cover; }
   .frame .placeholder{ color:rgba(244,241,232,.45); font-size:13px; padding:0 18px; line-height:1.5; }
   .frame .placeholder .icon{ font-size:38px; display:block; margin-bottom:8px; }
-  .reticle{ position:absolute; inset:14% 10%; border:2px solid rgba(255,204,0,.6); border-radius:6px; pointer-events:none;
+  .reticle{ position:absolute; inset:14% 10%; border:2px solid rgba(244,168,28,.6); border-radius:6px; pointer-events:none;
     box-shadow:0 0 0 100vmax rgba(0,0,0,.18); display:none; }
   .frame.live .reticle{ display:block; }
 
@@ -69,7 +72,7 @@
   .btn-gold{ background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:var(--ink);
     box-shadow:0 5px 0 #8a5e15, 0 10px 22px rgba(0,0,0,.4); }
   .btn-gold:active{ box-shadow:0 2px 0 #8a5e15, 0 6px 14px rgba(0,0,0,.4); }
-  .btn-ghost{ background:transparent; color:var(--gold-bright); border:2px solid rgba(255,204,0,.55);
+  .btn-ghost{ background:transparent; color:var(--gold-bright); border:2px solid rgba(244,168,28,.55);
     margin-top:10px; font-size:13px; padding:11px; }
   .btn[disabled]{ opacity:.45; cursor:not-allowed; }
   input[type="file"]{ display:none; }
@@ -114,7 +117,7 @@
   .error-card strong{ color:var(--red-err); display:block; margin-bottom:6px; font-family:'Oswald',sans-serif; letter-spacing:.08em; text-transform:uppercase; }
 
   header{ position:relative; }
-  .key-btn{ position:absolute; top:-2px; right:0; background:rgba(0,0,0,.3); border:2px solid rgba(255,204,0,.4);
+  .key-btn{ position:absolute; top:-2px; right:0; background:rgba(0,0,0,.3); border:2px solid rgba(244,168,28,.4);
     color:var(--gold-bright); font-size:18px; width:44px; height:44px; border-radius:50%; cursor:pointer; line-height:1; transition:border-color .15s; }
   .key-btn.set{ border-color:var(--green-ok); }
   .key-btn:active{ transform:scale(.94); }
@@ -136,7 +139,7 @@
 <body>
   <header>
     <button id="settingsBtn" class="key-btn" title="Your API key">🔑</button>
-    <div class="brand">Buzzer</div>
+    <div class="brand">Watson Live</div>
     <div class="tagline">Scan · Read · Solve</div>
   </header>
 
@@ -199,6 +202,10 @@
   // the app will use it automatically whenever a visitor hasn't entered their own key.
   const PROXY_URL = "";
   const KEY_STORE = "buzzer_anthropic_key";
+
+  // Model used to answer. Haiku is Anthropic's fastest, lightest tier — ideal for
+  // quick trivia. Swap to a Sonnet/Opus string for more accuracy on obscure clues.
+  const ANSWER_MODEL = "claude-haiku-4-5-20251001";
 
   let userKey = "";
   try { userKey = localStorage.getItem(KEY_STORE) || ""; } catch(_) {}
@@ -409,10 +416,14 @@
     // else: bare call — succeeds inside the Claude preview's relay so you can test
     // here; on a real host with no key and no proxy it fails, and we prompt for a key.
 
+    // The preview relay only accepts the Sonnet 4 string; your own key or proxy uses
+    // the lightweight ANSWER_MODEL for faster, cheaper answers.
+    const model = (userKey || PROXY_URL) ? ANSWER_MODEL : "claude-sonnet-4-20250514";
+
     try{
       const res=await fetch(url,{
         method:"POST", headers,
-        body:JSON.stringify(Object.assign({ model:"claude-sonnet-4-20250514", max_tokens:1000 }, bodyExtra))
+        body:JSON.stringify(Object.assign({ model, max_tokens:1000 }, bodyExtra))
       });
       if(!res.ok) throw new Error("status "+res.status);
       const data=await res.json();
