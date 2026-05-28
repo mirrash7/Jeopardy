@@ -33,7 +33,7 @@
     background-image:repeating-linear-gradient(to bottom, rgba(0,0,0,.06) 0 1px, transparent 1px 3px);
     pointer-events:none; opacity:.5; z-index:5; }
 
-  header{ text-align:center; margin-bottom:20px; z-index:10; }
+  header{ text-align:center; margin-bottom:20px; z-index:10; position:relative; width:100%; max-width:480px; }
   .brand{ font-family:'Oswald',sans-serif; font-weight:700; letter-spacing:.10em; text-transform:uppercase;
     font-size:clamp(28px,8.5vw,48px); line-height:.95; white-space:nowrap;
     background:linear-gradient(180deg, var(--gold-light) 0%, var(--gold-bright) 48%, var(--gold) 100%);
@@ -79,14 +79,10 @@
   canvas{ display:none; }
 
   /* Editable OCR confirm box */
-  .confirm-card{ background:var(--paper); color:var(--ink); border-radius:14px; padding:18px;
-    border:3px solid #000; box-shadow:0 14px 34px rgba(0,0,0,.45); animation:rise .35s both; }
-  .confirm-card .head{ font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:.12em;
-    font-size:12px; color:#8a5e15; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
-  .confirm-card textarea{ width:100%; min-height:84px; border:2px solid #d8d2c2; border-radius:8px; padding:12px;
-    font-family:'Hanken Grotesk',sans-serif; font-size:16px; color:var(--ink); resize:vertical; line-height:1.45; background:#fff; }
-  .confirm-card textarea:focus{ outline:none; border-color:var(--board-blue); }
-  .confirm-card .hint{ font-size:12px; color:#8a8678; margin-top:8px; }
+  .read-clue{ margin-top:16px; padding-top:14px; border-top:1px solid #e3ddcc; }
+  .read-clue .mini{ display:block; text-transform:uppercase; letter-spacing:.1em; font-size:11px; color:#8a8678; font-weight:600; margin-bottom:5px; }
+  .read-clue .text{ font-size:14px; line-height:1.5; color:#44423a; font-style:italic; border-left:3px solid var(--gold); padding-left:11px; }
+  .read-clue.miss .text{ color:#b3372f; font-style:normal; }
 
   .answer-card{ background:var(--paper); color:var(--ink); border-radius:14px; padding:22px 20px 24px;
     box-shadow:0 18px 40px rgba(0,0,0,.5); border:3px solid #000; animation:flip-in .5s cubic-bezier(.2,.8,.25,1) both; transform-origin:top center; }
@@ -116,8 +112,7 @@
     color:#ffd9d9; font-size:14px; line-height:1.5; animation:rise .3s both; }
   .error-card strong{ color:var(--red-err); display:block; margin-bottom:6px; font-family:'Oswald',sans-serif; letter-spacing:.08em; text-transform:uppercase; }
 
-  header{ position:relative; }
-  .key-btn{ position:absolute; top:-2px; right:0; background:rgba(0,0,0,.3); border:2px solid rgba(244,168,28,.4);
+  .key-btn{ position:absolute; top:-2px; right:0; z-index:30; background:rgba(0,0,0,.35); border:2px solid rgba(244,168,28,.55);
     color:var(--gold-bright); font-size:18px; width:44px; height:44px; border-radius:50%; cursor:pointer; line-height:1; transition:border-color .15s; }
   .key-btn.set{ border-color:var(--green-ok); }
   .key-btn:active{ transform:scale(.94); }
@@ -130,8 +125,14 @@
   .settings-card .btn-row{ display:flex; gap:10px; margin-top:12px; }
   .settings-card .btn-row .btn{ margin-top:0; }
   .settings-card .hint{ font-size:12.5px; margin-top:8px; font-weight:600; }
+  .settings-card .remember{ display:flex; align-items:center; gap:8px; margin-top:10px; font-size:13px; color:#55534a; font-weight:600; cursor:pointer; }
+  .settings-card .remember input{ width:auto; accent-color:var(--gold); }
   .settings-card .hint.ok{ color:#1c7a44; } .settings-card .hint.warn{ color:#b3372f; }
   .settings-card .fineprint{ font-size:11.5px; color:#8a8678; margin-top:10px; line-height:1.5; }
+
+  #status:empty{ display:none; }
+  @keyframes flash{ 0%{ filter:brightness(2.3);} 100%{ filter:brightness(1);} }
+  .frame.flash{ animation:flash .2s ease-out; }
 
   footer{ margin-top:26px; font-size:11px; color:rgba(244,241,232,.4); text-align:center; line-height:1.6; z-index:10; max-width:420px; }
 </style>
@@ -148,11 +149,12 @@
       <div class="label">Your Anthropic API Key</div>
       <input type="password" id="keyInput" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="hint" id="keyStatus"></div>
+      <label class="remember"><input type="checkbox" id="rememberKey"> Remember on this device</label>
       <div class="btn-row">
         <button class="btn btn-gold" id="saveKeyBtn">Save Key</button>
         <button class="btn btn-ghost" id="clearKeyBtn">Clear</button>
       </div>
-      <div class="fineprint">Stored only in this browser and sent only to Anthropic — never to this site's owner. Get a key at console.anthropic.com.</div>
+      <div class="fineprint">Your key stays in this browser and is sent straight to Anthropic — it never passes through this site (there's no server). With <b>Remember</b> off, it's forgotten when you close the tab. For extra safety, use a key with a spending limit and don't enter it on a shared device.</div>
     </div>
 
     <div class="mode-toggle">
@@ -172,11 +174,11 @@
       </div>
 
       <button class="btn btn-gold" id="primaryBtn">Capture Frame</button>
-      <button class="btn btn-ghost" id="retakeBtn" style="display:none;">Retake</button>
       <input type="file" id="fileInput" accept="image/*" capture="environment">
       <canvas id="canvas"></canvas>
     </div>
 
+    <div id="status"></div>
     <div id="output"></div>
   </main>
 
@@ -188,13 +190,14 @@
 <script>
   const $ = id => document.getElementById(id);
   const frame=$('frame'), video=$('video'), placeholder=$('placeholder'), canvas=$('canvas');
-  const primaryBtn=$('primaryBtn'), retakeBtn=$('retakeBtn'), fileInput=$('fileInput');
-  const output=$('output'), cardLabel=$('cardLabel');
+  const primaryBtn=$('primaryBtn'), fileInput=$('fileInput');
+  const output=$('output'), statusEl=$('status'), cardLabel=$('cardLabel');
   const modeCamera=$('modeCamera'), modeUpload=$('modeUpload');
 
   let mode='camera';          // 'camera' | 'upload'
   let stream=null;
   let lastCanvasDataUrl=null;
+  let scanSeq=0;              // increments each scan so stale responses are ignored
 
   // ---------- API key (Bring Your Own Key) ----------
   // Leave PROXY_URL "" for a pure GitHub Pages / BYOK setup. If you later deploy a
@@ -207,18 +210,25 @@
   // quick trivia. Swap to a Sonnet/Opus string for more accuracy on obscure clues.
   const ANSWER_MODEL = "claude-haiku-4-5-20251001";
 
+  // Strip anything that isn't a printable ASCII character. API keys are ASCII, and
+  // HTTP header values must be ISO-8859-1, so this removes invisible characters that
+  // sneak in when a key is pasted from chat, email, or a PDF.
+  function cleanKey(s){ return (s||"").replace(/[^\x21-\x7E]/g, ""); }
+
   let userKey = "";
-  try { userKey = localStorage.getItem(KEY_STORE) || ""; } catch(_) {}
+  let remembered = false;
+  try { userKey = cleanKey(localStorage.getItem(KEY_STORE) || ""); if (userKey) remembered = true; } catch(_) {}
 
   const settingsBtn=$('settingsBtn'), settingsCard=$('settingsCard'),
         keyInput=$('keyInput'), keyStatus=$('keyStatus'),
-        saveKeyBtn=$('saveKeyBtn'), clearKeyBtn=$('clearKeyBtn');
+        saveKeyBtn=$('saveKeyBtn'), clearKeyBtn=$('clearKeyBtn'), rememberKey=$('rememberKey');
 
   function reflectKeyState(){
     settingsBtn.classList.toggle('set', !!userKey);
+    rememberKey.checked = remembered;
     if(userKey){
       keyInput.value=userKey;
-      keyStatus.textContent="Key saved in this browser.";
+      keyStatus.textContent = remembered ? "Key saved on this device." : "Key set for this session.";
       keyStatus.className="hint ok";
     } else {
       keyStatus.textContent = PROXY_URL
@@ -233,13 +243,17 @@
     settingsCard.style.display = settingsCard.style.display==='none' ? '' : 'none';
   });
   saveKeyBtn.addEventListener('click',()=>{
-    userKey = keyInput.value.trim();
-    try { localStorage.setItem(KEY_STORE, userKey); } catch(_) {}
+    userKey = cleanKey(keyInput.value);
+    remembered = rememberKey.checked;
+    try {
+      if (userKey && remembered) localStorage.setItem(KEY_STORE, userKey);
+      else localStorage.removeItem(KEY_STORE);
+    } catch(_) {}
     reflectKeyState();
     if(userKey) settingsCard.style.display='none';
   });
   clearKeyBtn.addEventListener('click',()=>{
-    userKey=""; keyInput.value="";
+    userKey=""; keyInput.value=""; remembered=false;
     try { localStorage.removeItem(KEY_STORE); } catch(_) {}
     reflectKeyState();
   });
@@ -249,33 +263,32 @@
   modeUpload.addEventListener('click',()=>setMode('upload'));
 
   async function setMode(m){
-    mode=m; output.innerHTML=''; resetFrame();
+    mode=m;
+    clearStatus();
     modeCamera.classList.toggle('active', m==='camera');
     modeUpload.classList.toggle('active', m==='upload');
-    stopStream();
+    const img=frame.querySelector('img'); if(img) img.remove();
     if(m==='camera'){
       cardLabel.textContent='Aim & Capture';
       primaryBtn.textContent='Capture Frame';
-      primaryBtn.style.display='';
+      placeholder.style.display='none';
       await startCamera();
     } else {
+      stopStream();
       cardLabel.textContent='Upload a Photo';
       primaryBtn.textContent='Choose Photo';
-      primaryBtn.style.display='';
+      video.style.display='none';
       placeholder.innerHTML='<span class="icon">🖼️</span>Pick a photo of a Jeopardy clue';
       placeholder.style.display='';
-      video.style.display='none';
     }
-  }
-
-  function resetFrame(){
-    const img=frame.querySelector('img'); if(img) img.remove();
-    retakeBtn.style.display='none';
     primaryBtn.style.display='';
   }
 
   // ---------- Camera ----------
   async function startCamera(){
+    if(stream){ // already running — reuse it so we don't re-prompt for permission
+      video.style.display=''; placeholder.style.display='none'; frame.classList.add('live'); return;
+    }
     try{
       stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
       video.srcObject=stream; video.style.display=''; placeholder.style.display='none';
@@ -299,46 +312,51 @@
     captureFromVideo();
   });
 
-  retakeBtn.addEventListener('click',()=>{ output.innerHTML=''; if(mode==='camera') setMode('camera'); else setMode('upload'); });
-
   fileInput.addEventListener('change',e=>{
-    const file=e.target.files[0]; if(!file) return;
+    const file=e.target.files[0];
+    fileInput.value='';                 // reset so the same file can be re-picked next time
+    if(!file) return;
     const reader=new FileReader();
     reader.onload=()=>{ drawImageToCanvas(reader.result); };
     reader.readAsDataURL(file);
   });
 
+  // Camera capture: grab a frame WITHOUT stopping the live stream, so you can keep
+  // capturing clue after clue with no re-prompt and no reset.
   function captureFromVideo(){
     const w=video.videoWidth, h=video.videoHeight;
     if(!w||!h) return;
     canvas.width=w; canvas.height=h;
-    const ctx=canvas.getContext('2d');
-    ctx.drawImage(video,0,0,w,h);
-    finishCapture();
+    canvas.getContext('2d').drawImage(video,0,0,w,h);
+    flashCapture();
+    preprocess(canvas);
+    lastCanvasDataUrl=canvas.toDataURL('image/png');
+    runOCR(lastCanvasDataUrl, beginScan());
   }
 
+  // Upload: draw the chosen image, show it in the frame, then scan it.
   function drawImageToCanvas(dataUrl){
     const im=new Image();
     im.onload=()=>{
       canvas.width=im.width; canvas.height=im.height;
       canvas.getContext('2d').drawImage(im,0,0);
-      finishCapture();
+      const old=frame.querySelector('img'); if(old) old.remove();
+      placeholder.style.display='none'; video.style.display='none';
+      const shown=document.createElement('img'); shown.src=dataUrl; frame.appendChild(shown);
+      preprocess(canvas);
+      lastCanvasDataUrl=canvas.toDataURL('image/png');
+      runOCR(lastCanvasDataUrl, beginScan());
     };
     im.src=dataUrl;
   }
 
-  function finishCapture(){
-    preprocess(canvas);                  // grayscale + contrast for better OCR
-    lastCanvasDataUrl=canvas.toDataURL('image/png');
-    // show still preview
-    resetFrame();
-    const img=document.createElement('img'); img.src=lastCanvasDataUrl;
-    frame.appendChild(img); video.style.display='none'; placeholder.style.display='none';
-    frame.classList.remove('live');
-    stopStream();
-    primaryBtn.style.display='none';
-    retakeBtn.style.display='';
-    runOCR(lastCanvasDataUrl);
+  function flashCapture(){ frame.classList.add('flash'); setTimeout(()=>frame.classList.remove('flash'),200); }
+
+  // Start a scan: bump the sequence, show the working state, keep the old answer in place.
+  function beginScan(){
+    const token=++scanSeq;
+    showLoading('Reading the clue…', true);
+    return token;
   }
 
   // Boost legibility for Tesseract: grayscale + contrast stretch
@@ -355,25 +373,26 @@
   }
 
   // ---------- OCR (on-device) → straight to answer ----------
-  async function runOCR(dataUrl){
-    showLoading('Reading the clue…', true);
+  async function runOCR(dataUrl, token){
     let text='';
     try{
       const result=await Tesseract.recognize(dataUrl,'eng',{
-        logger:m=>{ if(m.status==='recognizing text'){ const b=$('ocrBar'); if(b) b.style.width=Math.round(m.progress*100)+'%'; } }
+        logger:m=>{ if(token===scanSeq && m.status==='recognizing text'){ const b=$('ocrBar'); if(b) b.style.width=Math.round(m.progress*100)+'%'; } }
       });
       text=(result.data.text||'').replace(/\s+/g,' ').trim();
     }catch(err){
       // Sandboxed previews (like this Claude window) block the Web Worker that
       // Tesseract relies on. Fall back to reading the clue with the vision model.
-      return visionSolve(dataUrl);
+      return visionSolve(dataUrl, token);
     }
-    if(!text) return visionSolve(dataUrl);
-    solveFromText(text);
+    if(token!==scanSeq) return;          // a newer scan started — drop this one
+    if(!text) return visionSolve(dataUrl, token);
+    solveFromText(text, token);
   }
 
   // Fast path: send only the OCR'd text.
-  async function solveFromText(clue){
+  async function solveFromText(clue, token){
+    if(token!==scanSeq) return;
     showLoading('Buzzing in…', false);
     const prompt=
       'The following is a Jeopardy! clue (it may also contain the category). Clue: "'+clue+'". '+
@@ -382,25 +401,27 @@
       '"answer" (correct response phrased as a question, e.g. "What is Paris?"), '+
       '"confidence" ("high","medium","low"), '+
       '"explanation" (one short sentence of context).';
-    await callModel({ messages:[{ role:"user", content:prompt }] });
+    await callModel({ messages:[{ role:"user", content:prompt }] }, token, clue);
   }
 
   // Fallback path: vision model reads the clue from the image and answers in one call.
-  async function visionSolve(dataUrl){
+  async function visionSolve(dataUrl, token){
+    if(token!==scanSeq) return;
     showLoading('Reading the clue…', false);
     const base64=dataUrl.split(',')[1];
     const prompt=
       'This image contains a Jeopardy! clue (and maybe its category). Read it, then respond ONLY '+
       'with a JSON object, no markdown or backticks, with keys: "category" (else ""), '+
+      '"clue" (the exact clue text you read), '+
       '"answer" (correct response phrased as a question), "confidence" ("high","medium","low"), '+
       '"explanation" (one short sentence). If no clue is visible, set answer to "No clue found".';
     await callModel({ messages:[{ role:"user", content:[
       { type:"image", source:{ type:"base64", media_type:"image/png", data:base64 } },
       { type:"text", text:prompt }
-    ]}]});
+    ]}]}, token, null);
   }
 
-  async function callModel(bodyExtra){
+  async function callModel(bodyExtra, token, readText){
     let url = "https://api.anthropic.com/v1/messages";
     const headers = { "Content-Type":"application/json" };
 
@@ -425,44 +446,61 @@
         method:"POST", headers,
         body:JSON.stringify(Object.assign({ model, max_tokens:1000 }, bodyExtra))
       });
-      if(!res.ok) throw new Error("status "+res.status);
-      const data=await res.json();
+      let data=null;
+      try { data = await res.json(); } catch(_) {}
+      if(!res.ok){
+        const msg = (data && data.error && data.error.message) ? data.error.message : ("HTTP "+res.status);
+        throw new Error(msg);
+      }
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       const clean=txt.replace(/```json|```/g,"").trim();
       let parsed; try{ parsed=JSON.parse(clean); }catch(_){ parsed={answer:clean||"Couldn't parse a response.",confidence:"low"}; }
-      renderAnswer(parsed);
+      if (readText != null) parsed.clue = readText;   // on-device OCR text wins for the fast path
+      parsed.source = (readText != null) ? "ocr" : "vision";
+      renderAnswer(parsed, token);
     }catch(err){
       if(!userKey && !PROXY_URL){
         showError("Tap the 🔑 button and add your Anthropic API key to start scanning. "+
-          "(Details: "+escapeHtml(err.message)+")");
+          "(Details: "+escapeHtml(err.message)+")", token);
       } else {
-        showError("Couldn't reach the model: "+escapeHtml(err.message)+". Check your key and try again.");
+        showError("Couldn't get an answer: "+escapeHtml(err.message), token);
       }
     }
   }
 
+  // ---------- status (transient) + answer (persistent) ----------
   function showLoading(msg, withBar){
-    output.innerHTML='<div class="loading"><div class="dots"><span></span><span></span><span></span></div>'+
+    statusEl.innerHTML='<div class="loading"><div class="dots"><span></span><span></span><span></span></div>'+
       '<p>'+escapeHtml(msg)+'</p>'+(withBar?'<div class="bar"><i id="ocrBar"></i></div>':'')+'</div>';
   }
+  function clearStatus(){ statusEl.innerHTML=''; }
 
-  function renderAnswer(d){
+  function renderAnswer(d, token){
+    if(token!==scanSeq) return;          // ignore answers from superseded scans
+    clearStatus();
     const cat=d.category?'<div class="category-chip">'+escapeHtml(d.category)+'</div>':'';
     const conf=d.confidence?'<span class="confidence '+confClass(d.confidence)+'">Confidence: '+escapeHtml(d.confidence)+'</span>':'';
     const ex=d.explanation?'<div class="explain">'+escapeHtml(d.explanation)+'</div>':'';
+    const clueTxt=(d.clue||'').trim();
+    const label=d.source==='vision' ? 'Clue read (from image)' : 'Clue read (OCR)';
+    const miss = clueTxt ? '' : ' miss';
+    const read='<div class="read-clue'+miss+'"><span class="mini">'+label+'</span>'+
+      '<div class="text">'+escapeHtml(clueTxt || 'No text detected — try retaking with the clue filling the frame.')+'</div></div>';
     output.innerHTML=
       '<div class="answer-card">'+cat+
         '<span class="answer-line">Correct response</span>'+
         '<div class="answer">'+escapeHtml(d.answer||'—')+'</div>'+
         '<div class="meta-row">'+conf+'</div>'+ex+
-        '<button class="btn btn-ghost" id="againBtn">Scan Another</button>'+
+        read+
       '</div>';
-    $('againBtn').addEventListener('click',()=>setMode(mode));
   }
 
   // ---------- helpers ----------
   function confClass(c){ c=(c||'').toLowerCase(); return c==='high'?'conf-high':c==='low'?'conf-low':'conf-med'; }
-  function showError(msg){ output.innerHTML='<div class="error-card"><strong>No buzz</strong>'+msg+'</div>'; }
+  function showError(msg, token){
+    if(token!==undefined && token!==scanSeq) return;
+    statusEl.innerHTML='<div class="error-card"><strong>No buzz</strong>'+msg+'</div>';
+  }
   function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   // start
